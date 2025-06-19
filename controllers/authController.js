@@ -5,13 +5,22 @@ import jwt from 'jsonwebtoken';
 import { createClient } from 'redis';
 import { generateTokens } from '../utils/tokenUtils.js';
 import User from '../models/User.js';
-import {
-  API_KEY,
-  OTP_EXPIRY,
-  MAX_VERIFICATION_ATTEMPTS,
-  JWT_SECRET,
-  JWT_REFRESH_SECRET,
-} from '../config.js';
+// import {
+//   API_KEY,
+//   OTP_EXPIRY,
+//   MAX_VERIFICATION_ATTEMPTS,
+//   JWT_SECRET,
+//   JWT_REFRESH_SECRET,
+// } from '../config.js';
+
+
+
+const API_KEY = process.env.API_KEY;
+const OTP_EXPIRY = process.env.OTP_EXPIRY;
+const MAX_VERIFICATION_ATTEMPTS = process.env.MAX_VERIFICATION_ATTEMPTS;
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
+
 
 // Redis Cloud Client Configuration
 const redisClient = createClient({
