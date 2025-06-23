@@ -14,6 +14,100 @@ const validateLocation = (location) => {
 };
 
 
+
+
+
+
+
+
+export const addSavedAddress = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  
+  try {
+    const userId = req.user._id;
+    const addressData = req.body;
+    
+    // Validate required fields
+    if (!addressData.name || !addressData.lat || !addressData.lon || !addressData.address) {
+      await session.abortTransaction();
+      return res.status(400).json({
+        message: 'Missing required fields: name, lat, lon, address'
+      });
+    }
+    
+    const newAddress = {
+      name: addressData.name,
+      apartment: addressData.apartment || '',
+      street: addressData.street || '',
+      instructions: addressData.instructions || '',
+      type: addressData.type || 'home',
+      lat: addressData.lat,
+      lon: addressData.lon,
+      address: addressData.address,
+      pincode: addressData.pincode || '',
+      receiver_name: addressData.receiver_name || '',      // <-- store receiver name
+      receiver_mobile: addressData.receiver_mobile || '',  // <-- store receiver mobile
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    
+    // Add to saved addresses
+    await User.updateOne(
+      { _id: userId },
+      { $push: { saved_address: { $each: [newAddress], $position: 0 } } },
+      { session }
+    );
+    
+    // Set as selected recent address
+    const selectedAddress = {
+      lat: newAddress.lat,
+      lon: newAddress.lon,
+      address: [newAddress.apartment, newAddress.street, newAddress.address]
+        .filter(Boolean).join(', '),
+      pincode: newAddress.pincode,
+      type: newAddress.type,
+      apartment: newAddress.apartment || '',
+      street: newAddress.street || '',
+      name: newAddress.name || '',
+      receiver_name: newAddress.receiver_name || '',
+      receiver_mobile: newAddress.receiver_mobile || '',
+      updated_at: new Date()
+    };
+    
+    await User.updateOne(
+      { _id: userId },
+      { $set: { selected_recent_address: selectedAddress } },
+      { session }
+    );
+    
+    const updatedUser = await User.findById(userId)
+      .session(session)
+      .select('saved_address selected_recent_address');
+    
+    await session.commitTransaction();
+    
+    res.json({
+      message: 'Address added successfully',
+      new_address: updatedUser.saved_address[0],
+      saved_address: updatedUser.saved_address,
+      selected_recent_address: updatedUser.selected_recent_address
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Error adding saved address:', error);
+    res.status(500).json({
+      message: 'Failed to add address',
+      error: error.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+
+
 export const updateUserDetails = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -487,3 +581,25 @@ user.orders.unshift(orderData); // ✅ Push order to the top
 };
 
 
+
+export const checkActiveCodOrders = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId, { orders: 1 });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    const activeCodOrderExists = user.orders.some(order =>
+      (String(order.paymentMethod).toLowerCase() === 'cod' ||
+       String(order.paymentMode).toLowerCase() === 'cod') &&
+      String(order.orderStatus).toLowerCase() === 'confirmed'
+    );
+
+    res.json({ hasActiveCodOrders: activeCodOrderExists });
+  } catch (error) {
+    console.error('Error checking active COD orders:', error);
+    res.status(500).json({ message: 'Server error.', error: error.message });
+  }
+};

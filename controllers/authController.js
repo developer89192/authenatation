@@ -66,8 +66,8 @@ export const sendOtp = async (req, res, next) => {
     }
 
     const otp = generateOtp();
-    await redisClient.setEx(otpKey, OTP_EXPIRY || 300, otp);
-    await redisClient.setEx(attemptsKey, OTP_EXPIRY || 300, '0');
+    await redisClient.setEx(otpKey, OTP_EXPIRY || 30, otp);
+    await redisClient.setEx(attemptsKey, OTP_EXPIRY || 30, '0');
 
     const message = `Your OTP is ${otp}. It is valid for 5 minutes.`;
 
@@ -123,7 +123,7 @@ export const verifyOtp = async (req, res, next) => {
         return res.status(403).json({ error: 'Too many failed attempts. OTP has expired.' });
       }
 
-      await redisClient.setEx(attemptsKey, OTP_EXPIRY || 300, attempts.toString());
+      await redisClient.setEx(attemptsKey, OTP_EXPIRY || 30, attempts.toString());
       return res.status(400).json({ error: 'Incorrect OTP', attemptsLeft: (MAX_VERIFICATION_ATTEMPTS || 3) - attempts });
     }
 
@@ -147,8 +147,8 @@ export const verifyOtp = async (req, res, next) => {
     res
       .cookie('access_token', accessToken, {
         httpOnly: true,
-        secure: true,
-        sameSite: 'None',
+  secure: false,        // NOT secure for local dev
+  sameSite: 'lax',
         maxAge: 15 * 60 * 1000,
       })
       .cookie('refresh_token', refreshToken, {
@@ -208,21 +208,38 @@ sameSite: 'None', // CHANGE THIS
 };
 
 // LOGOUT
+// LOGOUT
 export const logout = async (req, res, next) => {
   try {
     const { refresh_token } = req.cookies;
+
+    // Optional: Invalidate the refresh token in the database
+    // This part is good for security, preventing the refresh token from being reused.
     if (refresh_token) {
       await User.findOneAndUpdate(
         { refresh_token },
-        { $unset: { refresh_token: '' } }
+        { $unset: { refresh_token: '' } }, // Remove the refresh_token field from the user document
+        { new: true } // Return the updated document (optional for this context)
       );
     }
 
+    // Crucial Fix: Add the same options used during cookie setting
     res
-      .clearCookie('access_token')
-      .clearCookie('refresh_token')
-      .json({ message: 'Logged out' });
+      .clearCookie('access_token', {
+        httpOnly: true,
+        secure: true, // IMPORTANT: Must be true if it was set with secure: true
+        sameSite: 'None', // IMPORTANT: Must be 'None' if it was set with sameSite: 'None'
+        path: '/', // Add path if you set it when creating the cookie. Express defaults to '/' but it's good to be explicit.
+      })
+      .clearCookie('refresh_token', {
+        httpOnly: true,
+        secure: true, // IMPORTANT
+        sameSite: 'None', // IMPORTANT
+        path: '/', // Add path
+      })
+      .json({ message: 'Logged out successfully' }); // Changed message for clarity
   } catch (error) {
-    next(error);
+    console.error("Logout error:", error); // Log the error for debugging
+    next(error); // Pass error to Express error handler
   }
 };

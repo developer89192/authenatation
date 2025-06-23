@@ -6,49 +6,46 @@ const userSchema = new mongoose.Schema({
   email: { type: String, default: '' },
 
   primary_address: {
-    name: { type: String},
-    apartment: { type: String },
-    street: { type: String },
-    instructions: { type: String },
-    type: {type: String},
-    lat: { type: Number },
-    lon: { type: Number },
-    address: { type : String}
-  },
-
-  orders: [
-  {
-    orderId: { type: String, unique: true },
-    // other order fields
-  }
-]
-,
-
-
-saved_address: [
-  {
-    name: { type: String, required: true },
+    name: { type: String },
     apartment: { type: String },
     street: { type: String },
     instructions: { type: String },
     type: { type: String },
     lat: { type: Number },
     lon: { type: Number },
+    address: { type: String }
+  },
+
+  saved_address: [
+    {
+      name: { type: String }, // address label
+      apartment: { type: String },
+      street: { type: String },
+      instructions: { type: String },
+      type: { type: String },
+      lat: { type: Number },
+      lon: { type: Number },
+      address: { type: String },
+      pincode: { type: String },
+      receiver_name: { type: String }, // <-- for contact person at this address
+      receiver_mobile: { type: String }, // <-- for contact phone number
+    }
+  ],
+
+  selected_recent_address: {
     address: { type: String },
-    pincode: { type: String } // ✅ Add this
-  }
-],
+    apartment: { type: String, default: '' },
+    street: { type: String, default: '' },
+    name: { type: String, default: '' },
+    lat: { type: Number },
+    lon: { type: Number },
+    type: { type: String },
+    pincode: { type: String },
+    receiver_name: { type: String },      // <-- added
+    receiver_mobile: { type: String },    // <-- added
+    _id: false
+  },
 
-selected_recent_address: {
-  address: { type: String },
-  lat: { type: Number },
-  lon: { type: Number },
-  type: { type: String },
-  pincode: { type: String } // ✅ Add this
-}
-,
-
-  // Multiple recent addresses (same structure as the previous 'recent_addresses')
   multiple_recent_addresses: [
     {
       address: { type: String },
@@ -58,30 +55,37 @@ selected_recent_address: {
     }
   ],
 
-orders: [
-  {
-    orderId: { type: String, required: true, unique: true },
-    orderStatus: { type: String, required: true },
-    paymentStatus: { type: String, required: true },
-    paymentMethod: { type: String },
-    deliveryStatus: { type: String, required: true },
-    returnStatus: { type: String, default: 'none' },
-    items: [
-      {
-        _id: false,
-        itemId: { type: String, required: true },
-        itemName: { type: String, required: true },
-        quantity: { type: Number, required: true },
-        price: { type: Number, required: true }
+  orders: [
+    {
+      orderId: { type: String, required: true, unique: true },
+      orderStatus: { type: String, required: true },
+      paymentStatus: { type: String, required: true },
+      paymentMethod: { type: String },
+      deliveryStatus: { type: String, required: true },
+      returnStatus: { type: String, default: 'none' },
+      items: [
+        {
+          _id: false,
+          itemId: { type: String, required: true },
+          itemName: { type: String, required: true },
+          quantity: { type: Number, required: true },
+          price: { type: Number, required: true }
+        }
+      ],
+      totalPrice: { type: Number, required: true },
+      orderDate: { type: Date, default: Date.now },
+      address: {
+        name: { type: String },
+        apartment: { type: String },
+        street: { type: String },
+        type: { type: String },
+        lat: { type: Number },
+        lon: { type: Number },
+        pincode: { type: String },
+        address: { type: String }
       }
-    ],
-    totalPrice: { type: Number, required: true },
-    orderDate: { type: Date, default: Date.now }
-  }
-]
-
-
-,
+    }
+  ],
 
   updated_at: [{ type: Date }],
   login_dates: [{ type: Date }],
