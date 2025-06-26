@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import User from '../models/User.js';
-import dotenv from 'dotenv'; // Import dotenv to load .env variables
-dotenv.config(); // Load the environment variables from the .env fi
+import dotenv from 'dotenv';
+dotenv.config();
 
 const validateLocation = (location) => {
   if (!location) return false;
@@ -13,29 +13,22 @@ const validateLocation = (location) => {
   );
 };
 
-
-
-
-
-
-
-
 export const addSavedAddress = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
-  
+
   try {
     const userId = req.user._id;
     const addressData = req.body;
-    
-    // Validate required fields
+
     if (!addressData.name || !addressData.lat || !addressData.lon || !addressData.address) {
       await session.abortTransaction();
       return res.status(400).json({
         message: 'Missing required fields: name, lat, lon, address'
       });
     }
-    
+
+    // Add address with new _id
     const newAddress = {
       name: addressData.name,
       apartment: addressData.apartment || '',
@@ -46,21 +39,25 @@ export const addSavedAddress = async (req, res) => {
       lon: addressData.lon,
       address: addressData.address,
       pincode: addressData.pincode || '',
-      receiver_name: addressData.receiver_name || '',      // <-- store receiver name
-      receiver_mobile: addressData.receiver_mobile || '',  // <-- store receiver mobile
+      receiver_name: addressData.receiver_name || '',
+      receiver_mobile: addressData.receiver_mobile || '',
       created_at: new Date(),
       updated_at: new Date()
     };
-    
-    // Add to saved addresses
+
+    // Create manually so we can get its _id
+    const addressDoc = new mongoose.Types.ObjectId();
+    newAddress._id = addressDoc;
+
     await User.updateOne(
       { _id: userId },
       { $push: { saved_address: { $each: [newAddress], $position: 0 } } },
       { session }
     );
-    
-    // Set as selected recent address
+
+    // Set as selected recent address WITH _id
     const selectedAddress = {
+      _id: addressDoc,
       lat: newAddress.lat,
       lon: newAddress.lon,
       address: [newAddress.apartment, newAddress.street, newAddress.address]
@@ -74,26 +71,26 @@ export const addSavedAddress = async (req, res) => {
       receiver_mobile: newAddress.receiver_mobile || '',
       updated_at: new Date()
     };
-    
+
     await User.updateOne(
       { _id: userId },
       { $set: { selected_recent_address: selectedAddress } },
       { session }
     );
-    
+
     const updatedUser = await User.findById(userId)
       .session(session)
       .select('saved_address selected_recent_address');
-    
+
     await session.commitTransaction();
-    
+
     res.json({
       message: 'Address added successfully',
       new_address: updatedUser.saved_address[0],
       saved_address: updatedUser.saved_address,
       selected_recent_address: updatedUser.selected_recent_address
     });
-    
+
   } catch (error) {
     await session.abortTransaction();
     console.error('Error adding saved address:', error);
@@ -106,25 +103,22 @@ export const addSavedAddress = async (req, res) => {
   }
 };
 
-
-
 export const updateUserDetails = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
     const userId = req.user._id;
-    const { 
-      name, 
-      email, 
-      primary_address, 
-      secondary_addresses, 
+    const {
+      name,
+      email,
+      primary_address,
+      secondary_addresses,
       selected_recent_address,
       multiple_recent_addresses,
-      saved_address 
+      saved_address
     } = req.body;
 
-    // Validate inputs
     if (multiple_recent_addresses && !validateLocation(multiple_recent_addresses)) {
       await session.abortTransaction();
       return res.status(400).json({ message: 'Invalid recent address data' });
@@ -141,25 +135,26 @@ export const updateUserDetails = async (req, res) => {
     if (primary_address !== undefined) updateFields.primary_address = primary_address;
     if (secondary_addresses !== undefined) updateFields.secondary_addresses = secondary_addresses;
 
-    // Handle recent addresses
+    // Handle multiple_recent_addresses (add new recent address)
     if (multiple_recent_addresses) {
-    const recent = {
-  lat: multiple_recent_addresses.lat,
-  lon: multiple_recent_addresses.lon,
-  address: multiple_recent_addresses.address,
-  pincode: multiple_recent_addresses.pincode || null, // <-- Add this
-  type: 'recent',
-  updated_at: new Date()
-};
-
+      const newRecent = {
+        lat: multiple_recent_addresses.lat,
+        lon: multiple_recent_addresses.lon,
+        address: multiple_recent_addresses.address,
+        pincode: multiple_recent_addresses.pincode || null,
+        type: 'recent',
+        updated_at: new Date()
+      };
+      // Generate an _id for recent address
+      newRecent._id = new mongoose.Types.ObjectId();
 
       // Remove duplicate if exists
       await User.updateOne(
         { _id: userId },
-        { $pull: { multiple_recent_addresses: { 
-          lat: recent.lat,
-          lon: recent.lon,
-          address: recent.address
+        { $pull: { multiple_recent_addresses: {
+          lat: newRecent.lat,
+          lon: newRecent.lon,
+          address: newRecent.address
         }}},
         { session }
       );
@@ -167,29 +162,34 @@ export const updateUserDetails = async (req, res) => {
       // Add to beginning of array
       await User.updateOne(
         { _id: userId },
-        { $push: { multiple_recent_addresses: { $each: [recent], $position: 0 } } },
+        { $push: { multiple_recent_addresses: { $each: [newRecent], $position: 0 } } },
         { session }
       );
 
-      updateFields.selected_recent_address = recent;
+      // Set as selected recent address WITH _id
+      updateFields.selected_recent_address = {
+        ...newRecent
+      };
     }
 
-    // Handle saved addresses
+    // Handle saved addresses (add new saved address)
     if (saved_address) {
-      const saved = {
+      const newSaved = {
         ...saved_address,
         type: saved_address.type,
         updated_at: new Date(),
         pincode: saved_address.pincode
       };
+      // Generate an _id for saved address if not present
+      newSaved._id = new mongoose.Types.ObjectId();
 
       // Remove duplicate if exists
       await User.updateOne(
         { _id: userId },
-        { $pull: { saved_address: { 
-          lat: saved.lat,
-          lon: saved.lon,
-          address: saved.address
+        { $pull: { saved_address: {
+          lat: newSaved.lat,
+          lon: newSaved.lon,
+          address: newSaved.address
         }}},
         { session }
       );
@@ -197,21 +197,16 @@ export const updateUserDetails = async (req, res) => {
       // Add to beginning of array
       await User.updateOne(
         { _id: userId },
-        { $push: { saved_address: { $each: [saved], $position: 0 } } },
+        { $push: { saved_address: { $each: [newSaved], $position: 0 } } },
         { session }
       );
 
-updateFields.selected_recent_address = {
-  lat: saved.lat,
-  lon: saved.lon,
-  address: [saved.apartment, saved.street, saved.address].filter(Boolean).join(', '),
-  pincode: saved.pincode || '',
-  type: saved.type,
-};
-
+      // Set as selected recent address WITH _id
+      updateFields.selected_recent_address = {
+        ...newSaved
+      };
     }
 
-    // Update other fields
     if (Object.keys(updateFields).length > 0) {
       await User.updateOne(
         { _id: userId },
@@ -229,14 +224,14 @@ updateFields.selected_recent_address = {
   } catch (error) {
     await session.abortTransaction();
     console.error('Update failed:', error);
-    
+
     if (error.name === 'ValidationError') {
-      res.status(400).json({ 
-        message: 'Validation failed', 
-        errors: error.errors 
+      res.status(400).json({
+        message: 'Validation failed',
+        errors: error.errors
       });
     } else {
-      res.status(500).json({ 
+      res.status(500).json({
         message: 'Server error during update',
         error: error.message
       });
@@ -264,7 +259,6 @@ export const deleteRecentAddress = async (req, res) => {
     const addressToDelete = user.multiple_recent_addresses.find(
       addr => addr._id.toString() === addressId
     );
-
     if (!addressToDelete) {
       await session.abortTransaction();
       return res.status(404).json({ message: 'Address not found' });
@@ -277,44 +271,54 @@ export const deleteRecentAddress = async (req, res) => {
       { session }
     );
 
-    // Update selected address if needed
-    let selectedAddress = user.selected_recent_address;
-    if (selectedAddress && selectedAddress._id?.toString() === addressId) {
-      const [newSelected] = user.multiple_recent_addresses
-        .filter(addr => addr._id.toString() !== addressId)
-        .slice(0, 1);
+    // Is this the selected address (compare _id)?
+    let isSelectedDeleted = false;
+    const selected = user.selected_recent_address;
+    if (selected && selected._id && selected._id.toString() === addressId) {
+      isSelectedDeleted = true;
+    }
 
-      if (newSelected) {
+    // After deletion, fetch fresh user doc for new address arrays
+    const userAfter = await User.findById(userId).session(session);
+
+    // Always prioritize saved_address[0], then multiple_recent_addresses[0], else unset
+    if (isSelectedDeleted) {
+      let nextSelected = null;
+      if (userAfter.saved_address && userAfter.saved_address.length > 0) {
+        nextSelected = { ...userAfter.saved_address[0]._doc };
+      } else if (userAfter.multiple_recent_addresses && userAfter.multiple_recent_addresses.length > 0) {
+        nextSelected = { ...userAfter.multiple_recent_addresses[0]._doc };
+      }
+      if (nextSelected) {
         await User.updateOne(
           { _id: userId },
-          { $set: { selected_recent_address: newSelected } },
+          { $set: { selected_recent_address: nextSelected } },
           { session }
         );
-        selectedAddress = newSelected;
       } else {
         await User.updateOne(
           { _id: userId },
           { $unset: { selected_recent_address: 1 } },
           { session }
         );
-        selectedAddress = null;
       }
     }
 
     const updatedUser = await User.findById(userId)
       .session(session)
-      .select('multiple_recent_addresses selected_recent_address');
+      .select('multiple_recent_addresses saved_address selected_recent_address');
 
     await session.commitTransaction();
     res.json({
       message: 'Address removed successfully',
       multiple_recent_addresses: updatedUser.multiple_recent_addresses,
+      saved_address: updatedUser.saved_address,
       selected_recent_address: updatedUser.selected_recent_address
     });
   } catch (error) {
     await session.abortTransaction();
     console.error('Error removing recent address:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Failed to remove address',
       error: error.message
     });
@@ -341,7 +345,6 @@ export const deleteSavedAddress = async (req, res) => {
     const addressToDelete = user.saved_address.find(
       addr => addr._id.toString() === addressId
     );
-
     if (!addressToDelete) {
       await session.abortTransaction();
       return res.status(404).json({ message: 'Address not found' });
@@ -354,52 +357,54 @@ export const deleteSavedAddress = async (req, res) => {
       { session }
     );
 
-    // Update selected address if needed
-    let selectedAddress = user.selected_recent_address;
-    if (selectedAddress && selectedAddress._id?.toString() === addressId) {
-      const [newSelected] = user.saved_address
-        .filter(addr => addr._id.toString() !== addressId)
-        .slice(0, 1);
+    // Is this the selected address (compare _id)?
+    let isSelectedDeleted = false;
+    const selected = user.selected_recent_address;
+    if (selected && selected._id && selected._id.toString() === addressId) {
+      isSelectedDeleted = true;
+    }
 
-      if (newSelected) {
+    // After deletion, fetch fresh user doc for new address arrays
+    const userAfter = await User.findById(userId).session(session);
+
+    // Always prioritize saved_address[0], then multiple_recent_addresses[0], else unset
+    if (isSelectedDeleted) {
+      let nextSelected = null;
+      if (userAfter.saved_address && userAfter.saved_address.length > 0) {
+        nextSelected = { ...userAfter.saved_address[0]._doc };
+      } else if (userAfter.multiple_recent_addresses && userAfter.multiple_recent_addresses.length > 0) {
+        nextSelected = { ...userAfter.multiple_recent_addresses[0]._doc };
+      }
+      if (nextSelected) {
         await User.updateOne(
           { _id: userId },
-          { $set: { selected_recent_address: newSelected } },
+          { $set: { selected_recent_address: nextSelected } },
           { session }
         );
-        selectedAddress = newSelected;
-      } else if (user.multiple_recent_addresses.length > 0) {
-        const [recentSelected] = user.multiple_recent_addresses.slice(0, 1);
-        await User.updateOne(
-          { _id: userId },
-          { $set: { selected_recent_address: recentSelected } },
-          { session }
-        );
-        selectedAddress = recentSelected;
       } else {
         await User.updateOne(
           { _id: userId },
           { $unset: { selected_recent_address: 1 } },
           { session }
         );
-        selectedAddress = null;
       }
     }
 
     const updatedUser = await User.findById(userId)
       .session(session)
-      .select('saved_address selected_recent_address');
+      .select('saved_address multiple_recent_addresses selected_recent_address');
 
     await session.commitTransaction();
     res.json({
       message: 'Address removed successfully',
       saved_address: updatedUser.saved_address,
+      multiple_recent_addresses: updatedUser.multiple_recent_addresses,
       selected_recent_address: updatedUser.selected_recent_address
     });
   } catch (error) {
     await session.abortTransaction();
     console.error('Error removing saved address:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Failed to remove address',
       error: error.message
     });
@@ -407,9 +412,6 @@ export const deleteSavedAddress = async (req, res) => {
     session.endSession();
   }
 };
-
-
-
 
 const validateSavedAddress = (data) => {
   return (
@@ -420,7 +422,6 @@ const validateSavedAddress = (data) => {
     typeof data.address === 'string'
   );
 };
-
 
 export const updateSavedAddress = async (req, res) => {
   const session = await mongoose.startSession();
@@ -448,28 +449,28 @@ export const updateSavedAddress = async (req, res) => {
       return res.status(404).json({ message: 'Saved address not found' });
     }
 
-    // Update all fields
-  user.saved_address[index] = {
-  ...user.saved_address[index]._doc,
-  name: data.name,
-  apartment: data.apartment || '',
-  street: data.street || '',
-  instructions: data.instructions || '',
-  type: data.type || '',
-  lat: data.lat,
-  lon: data.lon,
-  address: data.address,
-  pincode: data.pincode || '',
-  updated_at: new Date()
-};
-
+    // Update all fields, keep the same _id
+    user.saved_address[index] = {
+      ...user.saved_address[index]._doc,
+      name: data.name,
+      apartment: data.apartment || '',
+      street: data.street || '',
+      instructions: data.instructions || '',
+      type: data.type || '',
+      lat: data.lat,
+      lon: data.lon,
+      address: data.address,
+      pincode: data.pincode || '',
+      updated_at: new Date()
+    };
 
     await user.save({ session });
 
-    // If this was the selected_recent_address, update that too
+    // If this was the selected_recent_address, update it too
     if (
       user.selected_recent_address &&
-      user.selected_recent_address._id?.toString() === addressId
+      user.selected_recent_address._id &&
+      user.selected_recent_address._id.toString() === addressId
     ) {
       user.selected_recent_address = { ...user.saved_address[index]._doc };
       await User.updateOne(
@@ -495,6 +496,7 @@ export const updateSavedAddress = async (req, res) => {
   }
 };
 
+// ...keep your order handlers unchanged...
 
 export const updateOrderDetails = async (req, res) => {
   try {

@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema({
     pincode: { type: String },
     receiver_name: { type: String },      // <-- added
     receiver_mobile: { type: String },    // <-- added
-    _id: false
+      _id: { type: mongoose.Schema.Types.ObjectId }, 
   },
 
   multiple_recent_addresses: [
@@ -52,6 +52,7 @@ const userSchema = new mongoose.Schema({
       lat: { type: Number },
       lon: { type: Number },
       pincode: { type: String },
+      type: { type: String },
     }
   ],
 
