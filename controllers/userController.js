@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import User from '../models/User.js';
 import dotenv from 'dotenv';
+import { v4 as uuidv4 } from 'uuid'; 
 dotenv.config();
 
 const validateLocation = (location) => {
@@ -533,22 +534,15 @@ export const updateOrderDetails = async (req, res) => {
 
 
 
-
 export const addOrderToUser = async (req, res) => {
   const { userId } = req.params;
   const orderData = req.body.order;
 
-
   // Sanitize incoming order data
-orderData.paymentMethod = orderData.paymentMethod || 'unknown';
+  orderData.paymentMethod = orderData.paymentMethod || 'unknown';
 
-// Optional: log it
-console.log(`🧾 Payment Method: ${orderData.paymentMethod}`);
-
-
-
-  // Log the full incoming request body
-  // console.log(`🛬 Incoming order for user ${userId}:`, JSON.stringify(orderData, null, 2));
+  // Ensure orderId is present and unique
+  orderData.orderId = orderData.orderId || uuidv4();
 
   // Security check
   const internalApiKey = req.headers['x-internal-api-key'];
@@ -563,15 +557,19 @@ console.log(`🧾 Payment Method: ${orderData.paymentMethod}`);
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Extra validation for items array
     if (!Array.isArray(orderData.items) || orderData.items.length === 0) {
       console.warn(`⚠️ Order for user ${userId} has no valid items:`, orderData.items);
     } else {
       console.log(`✅ Order has ${orderData.items.length} item(s).`);
     }
 
+    // Prevent duplicate orderId in user.orders (optional but safe)
+    const isDuplicate = user.orders.some(order => order.orderId === orderData.orderId);
+    if (isDuplicate) {
+      return res.status(409).json({ error: 'Duplicate orderId in user.orders' });
+    }
 
-user.orders.unshift(orderData); // ✅ Push order to the top
+    user.orders.unshift(orderData); // ✅ Push order to the top
     await user.save();
 
     console.log(`✅ Order successfully added to user ${userId}`);

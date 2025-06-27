@@ -18,7 +18,7 @@ dotenv.config(); // Load the environment variables from the .env file
 
 
 const API_KEY = process.env.API_KEY;
-const OTP_EXPIRY = process.env.OTP_EXPIRY;
+// const OTP_EXPIRY = process.env.OTP_EXPIRY;
 const MAX_VERIFICATION_ATTEMPTS = process.env.MAX_VERIFICATION_ATTEMPTS;
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
@@ -50,7 +50,9 @@ export const sendOtp = async (req, res, next) => {
   try {
     const { mobileNumber } = req.body;
 
-    if (!mobileNumber) return res.status(400).json({ error: 'Mobile number is required' });
+    if (!mobileNumber) {
+      return res.status(400).json({ error: 'Mobile number is required' });
+    }
 
     let user = await User.findOne({ mobile_number: mobileNumber });
     if (!user) {
@@ -59,21 +61,28 @@ export const sendOtp = async (req, res, next) => {
 
     const otpKey = `otp:${mobileNumber}`;
     const attemptsKey = `otp_attempts:${mobileNumber}`;
+    const OTP_EXPIRY = 300; // 5 minutes
+    const FAST2SMS_API_KEY = process.env.FAST2SMS_API_KEY;
 
     const existingOtp = await redisClient.get(otpKey);
     if (existingOtp) {
       return res.status(429).json({ error: 'OTP already sent. Please wait 5 minutes to resend.' });
     }
 
-    const otp = generateOtp();
-    await redisClient.setEx(otpKey, OTP_EXPIRY || 30, otp);
-    await redisClient.setEx(attemptsKey, OTP_EXPIRY || 30, '0');
+    // Local OTP generator function
+    // const generateOtp = () => {
+    //   return Math.floor(100000 + Math.random() * 900000).toString();
+    // };
 
-    const message = `Your OTP is ${otp}. It is valid for 5 minutes.`;
+    const otp = generateOtp();
+    await redisClient.setEx(otpKey, OTP_EXPIRY, otp);
+    await redisClient.setEx(attemptsKey, OTP_EXPIRY, '0');
+
+    const message = `Your OTP for Rythuri is ${otp}. It is valid for 5 minutes.`;
 
     try {
       await axios.post(
-        'https://otp-rlpf.onrender.com/receive-otp',
+        'https://www.fast2sms.com/dev/bulkV2',
         new URLSearchParams({
           message,
           language: 'english',
@@ -82,8 +91,8 @@ export const sendOtp = async (req, res, next) => {
         }),
         {
           headers: {
+            authorization: FAST2SMS_API_KEY,
             'Content-Type': 'application/x-www-form-urlencoded',
-            // 'authorization': API_KEY,
           },
         }
       );
@@ -97,6 +106,7 @@ export const sendOtp = async (req, res, next) => {
     next(error);
   }
 };
+
 
 // VERIFY OTP
 export const verifyOtp = async (req, res, next) => {

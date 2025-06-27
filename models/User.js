@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema({
     pincode: { type: String },
     receiver_name: { type: String },      // <-- added
     receiver_mobile: { type: String },    // <-- added
-      _id: { type: mongoose.Schema.Types.ObjectId }, 
+    _id: { type: mongoose.Schema.Types.ObjectId }, 
   },
 
   multiple_recent_addresses: [
@@ -58,7 +58,7 @@ const userSchema = new mongoose.Schema({
 
   orders: [
     {
-      orderId: { type: String, required: true, unique: true },
+      orderId: { type: String, required: true },
       orderStatus: { type: String, required: true },
       paymentStatus: { type: String, required: true },
       paymentMethod: { type: String },
@@ -94,5 +94,8 @@ const userSchema = new mongoose.Schema({
   is_verified: { type: Boolean, default: false },
   refresh_token: { type: String }, // Optional if you're storing it in DB
 });
+
+// Add sparse+unique index at the schema level for orders.orderId
+userSchema.index({ 'orders.orderId': 1 }, { unique: true, sparse: true });
 
 export default mongoose.model('User', userSchema); // ES Module export default
