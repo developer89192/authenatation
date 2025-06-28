@@ -1,32 +1,18 @@
-// authController.js
-
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { createClient } from 'redis';
 import { generateTokens } from '../utils/tokenUtils.js';
 import User from '../models/User.js';
-// import {
-//   API_KEY,
-//   OTP_EXPIRY,
-//   MAX_VERIFICATION_ATTEMPTS,
-//   JWT_SECRET,
-//   JWT_REFRESH_SECRET,
-// } from '../config.js';
-import dotenv from 'dotenv'; // Import dotenv to load .env variables
-dotenv.config(); // Load the environment variables from the .env file
-
-
+import dotenv from 'dotenv';
+dotenv.config();
 
 const API_KEY = process.env.API_KEY;
-// const OTP_EXPIRY = process.env.OTP_EXPIRY;
 const MAX_VERIFICATION_ATTEMPTS = process.env.MAX_VERIFICATION_ATTEMPTS;
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
-console.log(JWT_REFRESH_SECRET,JWT_SECRET)
+console.log(JWT_REFRESH_SECRET, JWT_SECRET);
 
-
-// Redis Cloud Client Configuration
 const redisClient = createClient({
   username: 'default',
   password: 'fA2YBZIANbdCkUtIBqaHw1hmBnu0ArYh',
@@ -40,7 +26,6 @@ redisClient.on('error', (err) => console.log('❌ Redis Client Error:', err));
 await redisClient.connect();
 console.log('✅ Connected to Redis Cloud');
 
-// Generate a 6-digit OTP
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
@@ -68,11 +53,6 @@ export const sendOtp = async (req, res, next) => {
     if (existingOtp) {
       return res.status(429).json({ error: 'OTP already sent. Please wait 5 minutes to resend.' });
     }
-
-    // Local OTP generator function
-    // const generateOtp = () => {
-    //   return Math.floor(100000 + Math.random() * 900000).toString();
-    // };
 
     const otp = generateOtp();
     await redisClient.setEx(otpKey, OTP_EXPIRY, otp);
@@ -107,7 +87,6 @@ export const sendOtp = async (req, res, next) => {
   }
 };
 
-
 // VERIFY OTP
 export const verifyOtp = async (req, res, next) => {
   try {
@@ -133,7 +112,7 @@ export const verifyOtp = async (req, res, next) => {
         return res.status(403).json({ error: 'Too many failed attempts. OTP has expired.' });
       }
 
-      await redisClient.setEx(attemptsKey, OTP_EXPIRY || 30, attempts.toString());
+      await redisClient.setEx(attemptsKey, 30, attempts.toString());
       return res.status(400).json({ error: 'Incorrect OTP', attemptsLeft: (MAX_VERIFICATION_ATTEMPTS || 3) - attempts });
     }
 
@@ -154,20 +133,14 @@ export const verifyOtp = async (req, res, next) => {
     user.refresh_token = refreshToken;
     await user.save();
 
-    res
-      .cookie('access_token', accessToken, {
-        httpOnly: true,
-  secure: false,        // NOT secure for local dev
-  sameSite: 'lax',
-        maxAge: 15 * 60 * 1000,
-      })
-      .cookie('refresh_token', refreshToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'None',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      })
-      .json({ success: true, message: 'OTP verified successfully', userId: user._id });
+    // --- MAIN CHANGE: Send tokens in response body ---
+    res.json({
+      success: true,
+      message: 'OTP verified successfully',
+      userId: user._id,
+      accessToken,
+      refreshToken
+    });
   } catch (error) {
     console.error('OTP verification failed:', error.message);
     next(error);
@@ -177,7 +150,8 @@ export const verifyOtp = async (req, res, next) => {
 // REFRESH TOKEN
 export const refreshToken = async (req, res, next) => {
   try {
-    const { refresh_token } = req.cookies;
+    // Expect refreshToken in body (not cookies)
+    const { refreshToken: refresh_token } = req.body;
     if (!refresh_token) return res.sendStatus(401);
 
     const payload = jwt.verify(refresh_token, JWT_REFRESH_SECRET);
@@ -190,66 +164,42 @@ export const refreshToken = async (req, res, next) => {
     user.refresh_token = newRefreshToken;
     await user.save();
 
-    res
-    .cookie('access_token', accessToken, {
-    httpOnly: true,
-    secure: true,
-  sameSite: 'None', // CHANGE THIS
-    maxAge: 15 * 60 * 1000,
-  })
-     .cookie('refresh_token', newRefreshToken, {
-    httpOnly: true,
-    secure: true,
-sameSite: 'None', // CHANGE THIS
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  })
-      .json({ message: 'Token refreshed',
-
+    // --- MAIN CHANGE: Send tokens in response body ---
+    res.json({
+      message: 'Token refreshed',
       user: {
-      id: user._id,
-      mobile_number: user.mobile_number,
-      name: user.name,
-      email: user.email,
-    }
-       });
+        id: user._id,
+        mobile_number: user.mobile_number,
+        name: user.name,
+        email: user.email,
+      },
+      accessToken,
+      refreshToken: newRefreshToken
+    });
   } catch (err) {
     next(err);
   }
 };
 
 // LOGOUT
-// LOGOUT
 export const logout = async (req, res, next) => {
   try {
-    const { refresh_token } = req.cookies;
+    // Accept refreshToken in body or as Bearer header
+    const refresh_token = req.body.refreshToken || (req.headers['authorization'] && req.headers['authorization'].split(' ')[1]);
 
     // Optional: Invalidate the refresh token in the database
-    // This part is good for security, preventing the refresh token from being reused.
     if (refresh_token) {
       await User.findOneAndUpdate(
         { refresh_token },
-        { $unset: { refresh_token: '' } }, // Remove the refresh_token field from the user document
-        { new: true } // Return the updated document (optional for this context)
+        { $unset: { refresh_token: '' } },
+        { new: true }
       );
     }
 
-    // Crucial Fix: Add the same options used during cookie setting
-    res
-      .clearCookie('access_token', {
-        httpOnly: true,
-        secure: true, // IMPORTANT: Must be true if it was set with secure: true
-        sameSite: 'None', // IMPORTANT: Must be 'None' if it was set with sameSite: 'None'
-        path: '/', // Add path if you set it when creating the cookie. Express defaults to '/' but it's good to be explicit.
-      })
-      .clearCookie('refresh_token', {
-        httpOnly: true,
-        secure: true, // IMPORTANT
-        sameSite: 'None', // IMPORTANT
-        path: '/', // Add path
-      })
-      .json({ message: 'Logged out successfully' }); // Changed message for clarity
+    // No cookies to clear; just send a message
+    res.json({ message: 'Logged out successfully' });
   } catch (error) {
-    console.error("Logout error:", error); // Log the error for debugging
-    next(error); // Pass error to Express error handler
+    console.error("Logout error:", error);
+    next(error);
   }
 };

@@ -14,7 +14,7 @@ const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 const app = express();
 
 app.use(cors({
-  origin: 'https://www.rythuri.com', // Your frontend URL
+  origin: 'http://localhost:5173', // Your frontend URL
   credentials: true,
 }));
 
