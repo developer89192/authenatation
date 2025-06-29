@@ -1,5 +1,12 @@
 import mongoose from 'mongoose'; // ES Module import for mongoose
 
+// --- Add refresh_tokens array to allow up to 3 devices ---
+const refreshTokenSchema = new mongoose.Schema({
+  token: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+  device: { type: String }, // Optional: device info
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
   mobile_number: { type: String, required: true, unique: true },
   name: { type: String, default: '' },
@@ -92,7 +99,9 @@ const userSchema = new mongoose.Schema({
   login_dates: [{ type: Date }],
   account_created_at: { type: Date, default: Date.now },
   is_verified: { type: Boolean, default: false },
-  refresh_token: { type: String }, // Optional if you're storing it in DB
+  refresh_tokens: [refreshTokenSchema], // <-- Up to 3 refresh tokens here
+
+  // Remove old: refresh_token: { type: String }, // Remove this line
 });
 
 // Add sparse+unique index at the schema level for orders.orderId

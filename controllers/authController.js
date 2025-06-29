@@ -11,8 +11,6 @@ const MAX_VERIFICATION_ATTEMPTS = process.env.MAX_VERIFICATION_ATTEMPTS;
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET;
 
-console.log(JWT_REFRESH_SECRET, JWT_SECRET);
-
 const redisClient = createClient({
   username: 'default',
   password: 'fA2YBZIANbdCkUtIBqaHw1hmBnu0ArYh',
@@ -28,6 +26,22 @@ console.log('✅ Connected to Redis Cloud');
 
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// --- Helpers for refresh token array logic ---
+const MAX_DEVICES = 3;
+
+function addRefreshToken(user, token, device = null) {
+  if (!user.refresh_tokens) user.refresh_tokens = [];
+  // Add new one to front
+  user.refresh_tokens.unshift({ token, createdAt: new Date(), device });
+  // Keep only latest MAX_DEVICES
+  user.refresh_tokens = user.refresh_tokens.slice(0, MAX_DEVICES);
+}
+
+function removeRefreshToken(user, token) {
+  if (!user.refresh_tokens) return;
+  user.refresh_tokens = user.refresh_tokens.filter(rt => rt.token !== token);
 }
 
 // SEND OTP
@@ -130,10 +144,10 @@ export const verifyOtp = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    user.refresh_token = refreshToken;
+    // --- Multiple device support: add new token, keep at most 3 ---
+    addRefreshToken(user, refreshToken, req.headers['user-agent'] || null);
     await user.save();
 
-    // --- MAIN CHANGE: Send tokens in response body ---
     res.json({
       success: true,
       message: 'OTP verified successfully',
@@ -156,15 +170,21 @@ export const refreshToken = async (req, res, next) => {
 
     const payload = jwt.verify(refresh_token, JWT_REFRESH_SECRET);
     const user = await User.findById(payload.id);
-    if (!user || user.refresh_token !== refresh_token) {
+    if (
+      !user ||
+      !user.refresh_tokens ||
+      !user.refresh_tokens.some(rt => rt.token === refresh_token)
+    ) {
       return res.sendStatus(403);
     }
 
     const { accessToken, refreshToken: newRefreshToken } = generateTokens(user._id);
-    user.refresh_token = newRefreshToken;
+
+    // Remove old token, add new one
+    removeRefreshToken(user, refresh_token);
+    addRefreshToken(user, newRefreshToken, req.headers['user-agent'] || null);
     await user.save();
 
-    // --- MAIN CHANGE: Send tokens in response body ---
     res.json({
       message: 'Token refreshed',
       user: {
@@ -187,11 +207,11 @@ export const logout = async (req, res, next) => {
     // Accept refreshToken in body or as Bearer header
     const refresh_token = req.body.refreshToken || (req.headers['authorization'] && req.headers['authorization'].split(' ')[1]);
 
-    // Optional: Invalidate the refresh token in the database
+    // Remove only the matching token from array
     if (refresh_token) {
       await User.findOneAndUpdate(
-        { refresh_token },
-        { $unset: { refresh_token: '' } },
+        { 'refresh_tokens.token': refresh_token },
+        { $pull: { refresh_tokens: { token: refresh_token } } },
         { new: true }
       );
     }
